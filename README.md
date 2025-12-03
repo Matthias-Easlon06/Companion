@@ -1,13 +1,34 @@
 import sys
+import subprocess
+import importlib.util
+import webbrowser
+
+def install_and_import(package, import_name=None):
+    """Install package if not available and import it"""
+    if import_name is None:
+        import_name = package
+    
+    spec = importlib.util.find_spec(import_name)
+    if spec is None:
+        print(f"Installing {package}...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package, "-q"])
+        print(f"{package} installed successfully!")
+    return importlib.import_module(import_name)
+
+print("Checking dependencies...")
+install_and_import("requests")
+install_and_import("PyQt5")
+print("All dependencies ready!\n")
+
 import random
 import requests
 from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout, 
-                              QLineEdit, QTextEdit, QHBoxLayout, QPushButton)
+                              QLineEdit, QTextBrowser, QHBoxLayout, QPushButton)
 from PyQt5.QtCore import Qt, QTimer, QPoint, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
 
-class ChatGPTThread(QThread):
-    """Thread for handling ChatGPT API calls"""
+class OpenAIThread(QThread):
+    """Thread for handling OpenAI API calls"""
     response_ready = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
     
@@ -24,13 +45,12 @@ class ChatGPTThread(QThread):
                 "Content-Type": "application/json"
             }
             
-            # Build messages for API
             messages = self.conversation_history + [
                 {"role": "user", "content": self.message}
             ]
             
             data = {
-                "model": "gpt-4o-mini",  # Try this cheaper model first
+                "model": "gpt-4o-mini",
                 "messages": messages,
                 "max_tokens": 1000,
                 "temperature": 0.7
@@ -53,357 +73,412 @@ class ChatGPTThread(QThread):
         except Exception as e:
             self.error_occurred.emit(f"Error: {str(e)}")
 
-class DesktopCompanion(QWidget):
+class Plunket(QWidget):
     def __init__(self):
         super().__init__()
         
-        # Your OpenAI API key
         self.api_key = "YOUR_OPENAI_API_KEY_HERE"
         
-        self.mood = 'happy'
+        self.mood = 'neutral'
         self.moods = {
-            'happy': {'face': '(◕‿◕)', 'msg': "I'm feeling happy!"},
-            'excited': {'face': '(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧', 'msg': "This is so exciting!"},
-            'sleepy': {'face': '(－ω－)', 'msg': "Yawn... sleepy time..."},
-            'love': {'face': '(♥‿♥)', 'msg': "Sending you love! 💕"},
-            'sad': {'face': '(╥﹏╥)', 'msg': "Feeling a bit down..."},
-            'surprised': {'face': '(⊙_⊙)', 'msg': "Oh wow!"},
-            'cool': {'face': '(⌐■_■)', 'msg': "Staying cool~"},
-            'angry': {'face': '(ಠ_ಠ)', 'msg': "Grr..."},
-            'thinking': {'face': '(¬‿¬)', 'msg': "Hmm, let me think..."}
+            'neutral': {'face': '(◕‿◕)', 'msg': ""},
+            'happy': {'face': '(◕‿◕)', 'msg': ""},
+            'excited': {'face': '(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧', 'msg': ""},
+            'sleepy': {'face': '(－ω－)', 'msg': ""},
+            'sad': {'face': '(╥﹏╥)', 'msg': ""},
+            'surprised': {'face': '(⊙_⊙)', 'msg': ""},
+            'thinking': {'face': '(¬‿¬)', 'msg': ""}
         }
         
-        # Conversation history for ChatGPT
         self.conversation_history = [
-            {"role": "system", "content": "You are a friendly desktop companion. Keep responses brief and cheerful. When you express different emotions, mention which mood you're in (happy, excited, sleepy, love, sad, surprised, cool, angry) so the UI can update accordingly."}
+            {"role": "system", "content": "You are Plunket, a helpful desktop companion. Keep responses concise and natural."}
         ]
         
-        # Dark mode toggle
         self.dark_mode = False
-        
-        # Dragging variables
         self.dragging = False
         self.offset = QPoint()
-        
         self.chat_thread = None
         
         self.init_ui()
         
     def init_ui(self):
-        # Window settings - Made wider
-        self.setWindowTitle('Desktop Companion')
-        self.setFixedSize(700, 700)  # Changed from 500 to 700
+        self.setWindowTitle('Plunket')
+        self.setFixedSize(600, 650)
         
-        # Transparent background, stay on top
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
-        # Main layout
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setContentsMargins(10, 10, 10, 10)
         
-        # Create a container for the content
         self.container = QWidget()
         self.container.setStyleSheet("""
-            background-color: rgba(255, 255, 255, 230);
-            border-radius: 15px;
+            background-color: rgb(250, 250, 250);
+            border-radius: 10px;
+            border: 1px solid rgb(200, 200, 200);
         """)
         container_layout = QVBoxLayout()
-        container_layout.setContentsMargins(20, 20, 20, 20)
-        container_layout.setSpacing(15)
+        container_layout.setContentsMargins(15, 15, 15, 15)
+        container_layout.setSpacing(12)
         
-        # Top bar with close button
         top_bar = QHBoxLayout()
+        
+        title_label = QLabel('Plunket')
+        title_label.setFont(QFont('Arial', 11))
+        title_label.setStyleSheet("background-color: transparent; color: #666;")
+        top_bar.addWidget(title_label)
+        
         top_bar.addStretch()
         
-        # Close button at top right
-        close_btn = QPushButton('✕')
-        close_btn.setFont(QFont('Arial', 14, QFont.Bold))
-        close_btn.setStyleSheet("""
+        self.theme_btn = QPushButton('🌙')
+        self.theme_btn.setFont(QFont('Arial', 14))
+        self.theme_btn.setStyleSheet("""
             QPushButton {
-                background-color: #ef4444;
-                color: white;
-                border: none;
-                border-radius: 20px;
-                padding: 5px;
+                background-color: transparent;
+                color: #666;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                padding: 4px 8px;
             }
             QPushButton:hover {
-                background-color: #dc2626;
+                background-color: rgba(0, 0, 0, 0.05);
             }
         """)
-        close_btn.setFixedSize(40, 40)
+        self.theme_btn.setFixedSize(32, 24)
+        self.theme_btn.clicked.connect(self.toggle_dark_mode)
+        top_bar.addWidget(self.theme_btn)
+        
+        close_btn = QPushButton('×')
+        close_btn.setFont(QFont('Arial', 16, QFont.Bold))
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #888;
+                border: none;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                color: #333;
+            }
+        """)
+        close_btn.setFixedSize(24, 24)
         close_btn.clicked.connect(self.close)
         top_bar.addWidget(close_btn)
+        
         container_layout.addLayout(top_bar)
         
-        # Face label (large ASCII art)
         self.face_label = QLabel(self.moods[self.mood]['face'])
-        self.face_label.setFont(QFont('Courier New', 72))
+        self.face_label.setFont(QFont('Courier New', 48))
         self.face_label.setAlignment(Qt.AlignCenter)
-        self.face_label.setStyleSheet("background-color: transparent; color: black;")
-        self.face_label.setMinimumHeight(120)
+        self.face_label.setStyleSheet("background-color: transparent; color: #333;")
+        self.face_label.setMinimumHeight(80)
         container_layout.addWidget(self.face_label)
         
-        # Chat history - Fixed to not cut off at bottom
-        self.chat_history = QTextEdit()
-        self.chat_history.setReadOnly(True)
-        self.chat_history.setFont(QFont('Arial', 12))
+        self.chat_history = QTextBrowser()
+        self.chat_history.setOpenExternalLinks(True)
+        self.chat_history.setFont(QFont('Arial', 11))
         self.chat_history.setStyleSheet("""
-            background-color: rgba(245, 245, 245, 200);
-            color: #1a1a1a;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 12px;
+            QTextBrowser {
+                background-color: rgb(245, 245, 245);
+                color: #2a2a2a;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 10px;
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 8px;
+            }
+            QScrollBar::handle:vertical {
+                background: #ccc;
+                border-radius: 4px;
+            }
         """)
-        self.chat_history.setMinimumHeight(300)
-        # Enable word wrap to prevent horizontal cutoff
-        self.chat_history.setLineWrapMode(QTextEdit.WidgetWidth)
-        # Set vertical scroll bar to always be visible
+        self.chat_history.setMinimumHeight(350)
+        self.chat_history.setLineWrapMode(QTextBrowser.WidgetWidth)
         self.chat_history.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         container_layout.addWidget(self.chat_history)
         
-        # Add initial message
         if self.api_key == "YOUR_OPENAI_API_KEY_HERE":
-            self.add_message("System", "Please add your OpenAI API key to use ChatGPT! Edit the code and replace YOUR_OPENAI_API_KEY_HERE with your actual key.")
+            self.add_message("System", "To use Plunket, you need an OpenAI API key.")
+            self.add_message("System", '<a href="https://platform.openai.com/api-keys" style="color: #4285f4;">Click here to get your OpenAI API Key</a>')
+            self.add_message("System", "Once you have your key, paste it in the chat below to activate Plunket.")
         else:
-            self.add_message("Companion", "Hi! I'm powered by ChatGPT. Chat with me!")
+            self.add_message("Plunket", "Hello! I'm Plunket. How can I help?")
         
-        # Input field
         input_layout = QHBoxLayout()
         
         self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("Type a message...")
-        self.input_field.setFont(QFont('Arial', 12))
+        self.input_field.setPlaceholderText("Type here...")
+        self.input_field.setFont(QFont('Arial', 11))
         self.input_field.setStyleSheet("""
-            background-color: white;
-            color: #1a1a1a;
-            border: 1px solid #ddd;
-            border-radius: 12px;
-            padding: 12px;
+            QLineEdit {
+                background-color: rgb(255, 255, 255);
+                color: #2a2a2a;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 10px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #999;
+            }
         """)
-        self.input_field.setMinimumHeight(45)
+        self.input_field.setMinimumHeight(40)
         self.input_field.returnPressed.connect(self.handle_input)
         input_layout.addWidget(self.input_field)
         
         container_layout.addLayout(input_layout)
-        
-        # Bottom button row
-        bottom_layout = QHBoxLayout()
-        
-        # Dark mode toggle button
-        self.dark_mode_btn = QPushButton('🌙')
-        self.dark_mode_btn.setFont(QFont('Arial', 16))
-        self.dark_mode_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #e0e0e0;
-                border: none;
-                border-radius: 20px;
-            }
-            QPushButton:hover {
-                background-color: #d0d0d0;
-            }
-        """)
-        self.dark_mode_btn.setFixedSize(40, 40)
-        self.dark_mode_btn.clicked.connect(self.toggle_dark_mode)
-        bottom_layout.addWidget(self.dark_mode_btn)
-        
-        bottom_layout.addStretch()
-        
-        container_layout.addLayout(bottom_layout)
         
         self.container.setLayout(container_layout)
         main_layout.addWidget(self.container)
         self.setLayout(main_layout)
         
     def update_theme(self):
-        """Update UI colors based on dark mode setting"""
         if self.dark_mode:
-            # Dark mode colors
             self.container.setStyleSheet("""
-                background-color: rgba(30, 30, 30, 230);
-                border-radius: 15px;
+                background-color: rgb(35, 35, 38);
+                border-radius: 10px;
+                border: 1px solid rgb(60, 60, 63);
             """)
             
-            self.face_label.setStyleSheet("background-color: transparent; color: white;")
+            self.face_label.setStyleSheet("background-color: transparent; color: #ddd;")
             
             self.chat_history.setStyleSheet("""
-                background-color: rgba(45, 45, 45, 200);
-                color: #e0e0e0;
-                border: 1px solid #555;
-                border-radius: 8px;
-                padding: 12px;
+                QTextBrowser {
+                    background-color: rgb(45, 45, 48);
+                    color: #e0e0e0;
+                    border: 1px solid #555;
+                    border-radius: 6px;
+                    padding: 10px;
+                }
+                QScrollBar:vertical {
+                    background: transparent;
+                    width: 8px;
+                }
+                QScrollBar::handle:vertical {
+                    background: #666;
+                    border-radius: 4px;
+                }
             """)
             
             self.input_field.setStyleSheet("""
-                background-color: #2d2d2d;
-                color: #e0e0e0;
-                border: 2px solid #555;
-                border-radius: 8px;
-                padding: 8px;
+                QLineEdit {
+                    background-color: rgb(45, 45, 48);
+                    color: #e0e0e0;
+                    border: 1px solid #555;
+                    border-radius: 6px;
+                    padding: 10px;
+                }
+                QLineEdit:focus {
+                    border: 1px solid #777;
+                }
             """)
             
-            self.dark_mode_btn.setStyleSheet("""
+            self.theme_btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #555;
-                    border: none;
-                    border-radius: 15px;
+                    background-color: transparent;
+                    color: #aaa;
+                    border: 1px solid #555;
+                    border-radius: 3px;
+                    padding: 4px 8px;
                 }
                 QPushButton:hover {
-                    background-color: #666;
+                    background-color: rgba(255, 255, 255, 0.05);
                 }
             """)
         else:
-            # Light mode colors
             self.container.setStyleSheet("""
-                background-color: rgba(255, 255, 255, 230);
-                border-radius: 15px;
+                background-color: rgb(250, 250, 250);
+                border-radius: 10px;
+                border: 1px solid rgb(200, 200, 200);
             """)
             
-            self.face_label.setStyleSheet("background-color: transparent; color: black;")
+            self.face_label.setStyleSheet("background-color: transparent; color: #333;")
             
             self.chat_history.setStyleSheet("""
-                background-color: rgba(245, 245, 245, 200);
-                color: #1a1a1a;
-                border: 1px solid #ddd;
-                border-radius: 8px;
-                padding: 8px;
+                QTextBrowser {
+                    background-color: rgb(245, 245, 245);
+                    color: #2a2a2a;
+                    border: 1px solid #ddd;
+                    border-radius: 6px;
+                    padding: 10px;
+                }
+                QScrollBar:vertical {
+                    background: transparent;
+                    width: 8px;
+                }
+                QScrollBar::handle:vertical {
+                    background: #ccc;
+                    border-radius: 4px;
+                }
             """)
             
             self.input_field.setStyleSheet("""
-                background-color: white;
-                color: #1a1a1a;
-                border: 2px solid #ddd;
-                border-radius: 8px;
-                padding: 8px;
+                QLineEdit {
+                    background-color: rgb(255, 255, 255);
+                    color: #2a2a2a;
+                    border: 1px solid #ddd;
+                    border-radius: 6px;
+                    padding: 10px;
+                }
+                QLineEdit:focus {
+                    border: 1px solid #999;
+                }
             """)
             
-            self.dark_mode_btn.setStyleSheet("""
+            self.theme_btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #e0e0e0;
-                    border: none;
-                    border-radius: 15px;
+                    background-color: transparent;
+                    color: #666;
+                    border: 1px solid #ccc;
+                    border-radius: 3px;
+                    padding: 4px 8px;
                 }
                 QPushButton:hover {
-                    background-color: #d0d0d0;
+                    background-color: rgba(0, 0, 0, 0.05);
                 }
             """)
     
     def toggle_dark_mode(self):
-        """Toggle between light and dark mode"""
         self.dark_mode = not self.dark_mode
-        self.dark_mode_btn.setText('☀️' if self.dark_mode else '🌙')
+        self.theme_btn.setText('☀️' if self.dark_mode else '🌙')
         self.update_theme()
         
     def add_message(self, sender, message):
-        """Add a message to chat history"""
-        self.chat_history.append(f"<b>{sender}:</b> {message}")
-        # Scroll to bottom after adding message
+        if sender == "You":
+            formatted = f'<p style="margin: 8px 0;"><span style="color: #666; font-weight: 500;">{sender}:</span> {message}</p>'
+        elif sender == "System":
+            formatted = f'<p style="margin: 8px 0; color: #999; font-size: 10px;">{message}</p>'
+        else:
+            formatted = f'<p style="margin: 8px 0;"><span style="color: #666; font-weight: 500;">{sender}:</span> {message}</p>'
+        
+        self.chat_history.append(formatted)
         self.chat_history.verticalScrollBar().setValue(
             self.chat_history.verticalScrollBar().maximum()
         )
         
     def handle_input(self):
-        """Handle user input"""
         text = self.input_field.text().strip()
         if not text:
             return
         
-        # Check if API key is set
-        if self.api_key == "YOUR_OPENAI_API_KEY_HERE":
-            self.add_message("System", "Please add your OpenAI API key first!")
+        if text == "/commands":
+            self.add_message("System", "<b>Available Commands:</b>")
+            self.add_message("System", "/commands - Show this list")
+            self.add_message("System", "/clear - Clear chat history")
+            self.add_message("System", "/mood [name] - Change mood (happy, excited, sleepy, sad, surprised, thinking)")
+            self.add_message("System", "/reset - Reset API key")
             self.input_field.clear()
             return
+        
+        if text == "/clear":
+            self.chat_history.clear()
+            self.conversation_history = [
+                {"role": "system", "content": "You are Plunket, a helpful desktop companion. Keep responses concise and natural."}
+            ]
+            self.add_message("System", "Chat history cleared.")
+            self.input_field.clear()
+            return
+        
+        if text.startswith("/mood "):
+            mood_name = text.split(" ", 1)[1].strip()
+            if mood_name in self.moods:
+                self.change_mood(mood_name)
+                self.add_message("System", f"Mood changed to {mood_name}.")
+            else:
+                self.add_message("System", f"Unknown mood. Available: {', '.join(self.moods.keys())}")
+            self.input_field.clear()
+            return
+        
+        if text == "/reset":
+            self.api_key = "YOUR_OPENAI_API_KEY_HERE"
+            self.chat_history.clear()
+            self.conversation_history = [
+                {"role": "system", "content": "You are Plunket, a helpful desktop companion. Keep responses concise and natural."}
+            ]
+            self.add_message("System", "API key reset. Please enter a new API key to continue.")
+            self.input_field.clear()
+            return
+        
+        if self.api_key == "YOUR_OPENAI_API_KEY_HERE":
+            if text.startswith("sk-"):
+                self.api_key = text
+                self.add_message("System", "API key saved! You can now chat with Plunket.")
+                self.input_field.clear()
+                return
+            else:
+                self.add_message("System", "Please enter your OpenAI API key (it should start with 'sk-')")
+                self.input_field.clear()
+                return
             
-        # Add user message to chat
         self.add_message("You", text)
         self.input_field.clear()
         self.input_field.setEnabled(False)
         
-        # Show thinking state
         self.change_mood('thinking')
-        self.add_message("Companion", "...")
+        self.add_message("Plunket", "...")
         
-        # Call ChatGPT API in separate thread
-        self.chat_thread = ChatGPTThread(self.api_key, text, self.conversation_history)
+        self.chat_thread = OpenAIThread(self.api_key, text, self.conversation_history)
         self.chat_thread.response_ready.connect(self.handle_response)
         self.chat_thread.error_occurred.connect(self.handle_error)
         self.chat_thread.start()
         
     def handle_response(self, response):
-        """Handle ChatGPT response"""
-        # Remove the "..." message
-        cursor = self.chat_history.textCursor()
-        cursor.movePosition(cursor.End)
-        cursor.select(cursor.LineUnderCursor)
-        cursor.removeSelectedText()
-        cursor.deletePreviousChar()
+        html = self.chat_history.toHtml()
+        lines = html.split('<p')
+        if len(lines) > 1:
+            html = '<p'.join(lines[:-1])
+        self.chat_history.setHtml(html)
         
-        # Add the actual response
-        self.add_message("Companion", response)
+        self.add_message("Plunket", response)
         
-        # Store the user's message from before it was cleared
         user_message = self.chat_thread.message
         
-        # Update conversation history
         self.conversation_history.append({"role": "user", "content": user_message})
         self.conversation_history.append({"role": "assistant", "content": response})
         
-        # Keep conversation history manageable (last 10 messages)
         if len(self.conversation_history) > 11:
             self.conversation_history = [self.conversation_history[0]] + self.conversation_history[-10:]
         
-        # Detect mood from response
-        response_lower = response.lower()
-        for mood_name in self.moods.keys():
-            if mood_name in response_lower:
-                self.change_mood(mood_name)
-                break
-        else:
-            self.change_mood('happy')
+        self.change_mood('neutral')
         
         self.input_field.setEnabled(True)
         self.input_field.setFocus()
         
     def handle_error(self, error_msg):
-        """Handle API errors"""
-        # Remove the "..." message
-        cursor = self.chat_history.textCursor()
-        cursor.movePosition(cursor.End)
-        cursor.select(cursor.LineUnderCursor)
-        cursor.removeSelectedText()
-        cursor.deletePreviousChar()
+        html = self.chat_history.toHtml()
+        lines = html.split('<p')
+        if len(lines) > 1:
+            html = '<p'.join(lines[:-1])
+        self.chat_history.setHtml(html)
         
-        self.add_message("System", f"❌ {error_msg}")
-        self.change_mood('sad')
+        self.add_message("System", error_msg)
+        self.change_mood('neutral')
         self.input_field.setEnabled(True)
         self.input_field.setFocus()
         
     def change_mood(self, new_mood):
-        """Change companion mood"""
         if new_mood in self.moods:
             self.mood = new_mood
             self.face_label.setText(self.moods[new_mood]['face'])
         
     def mousePressEvent(self, event):
-        """Handle mouse press for dragging"""
         if event.button() == Qt.LeftButton:
             self.dragging = True
             self.offset = event.pos()
             
     def mouseMoveEvent(self, event):
-        """Handle mouse move for dragging"""
         if self.dragging:
             self.move(self.pos() + event.pos() - self.offset)
             
     def mouseReleaseEvent(self, event):
-        """Handle mouse release"""
         if event.button() == Qt.LeftButton:
             self.dragging = False
 
 def main():
     app = QApplication(sys.argv)
-    companion = DesktopCompanion()
-    companion.show()
+    plunket = Plunket()
+    plunket.show()
     sys.exit(app.exec_())
 
 if __name__ == '__main__':
